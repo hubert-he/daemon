@@ -11,15 +11,7 @@
 #include "pcre.h"
 #define DEBUG_OPEN 0
 
-struct qstring
-{
-	char *s;
-	unsigned int len;
-};
-
 int trim(char *buf, int start, int end);
-
-
 
 void skip_space(char *htm, int *index)
 {
@@ -71,7 +63,8 @@ char** readingFile(char *filePath, int flags)
 		syslog(LOG_INFO, "Err: file %s too larger!\n", filePath);
 		goto ERROR;
 	}
-	char *buf = (char *)malloc(fileSize);
+	char *buf = (char *)malloc(fileSize+1);
+	memset(buf, 0, fileSize+1);
 	if(!buf)
 	{
 		syslog(LOG_INFO, "Err: Can NOT get more memory!\n");
