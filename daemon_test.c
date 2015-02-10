@@ -18,24 +18,14 @@ struct lstring
 	unsigned int length;
 };
 
-int trim(char *buf, long int *start, long int *end);
+#define LOCKFILE "/var/run/rotated.pid"
+#define LOCKMODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
-int daemon_init(void) 
-{ 
-	pid_t pid; 
-  if((pid = fork()) < 0) 
-  	return(-1); 
-  else if(pid != 0) 
-  	exit(0); /* parent exit */ 
-/* child continues */ 
-  setsid(); 
-  chdir("/opt/"); 
-  umask(0); 
-  close(0); /* close stdin */ 
-  close(1); /* close stdout */ 
-  close(2); /* close stderr */ 
-  return(0); 
-}
+int     lockfile;                  /* 锁文件的描述字 */
+void    flock_reg ();              /* 注册文件锁 */
+int     program_running_check();   /* 锁控制函数 */
+int daemon_init(void);
+int trim(char *buf, long int *start, long int *end);
 
 void sig_term(int signo) 
 { 
@@ -296,6 +286,18 @@ void do_edit_extensions(char *extPath, struct lstring *buff)
 
 int main(int argc, char *argv[]) 
 {
+	//打开锁文件
+    lockfile = open (LOCKFILE, O_RDWR | O_CREAT , LOCKMODE);
+    if (lockfile < 0){
+        fprintf(stderr,"Lockfile Open Failed");
+        exit(1);
+    }
+    // 检测可否获得锁 
+    int mun;
+    if ( (mun = program_running_check())){
+        printf("Instance with pid %d running, just exit\n", mun);
+        exit(1);
+    }
 #if 1
 	if(daemon_init() == -1) 
 	{ 
@@ -326,5 +328,67 @@ int main(int argc, char *argv[])
 		free(phoneBook);
 		sleep(300); /* put your main program here */ 
 	} 
+	return(0); 
+}
+
+void flock_reg ()
+{
+    char buf[16];
+    struct flock fl;
+    fl.l_start = 0;
+    fl.l_whence = SEEK_SET;
+    fl.l_len = 0;
+    fl.l_type = F_WRLCK;
+    fl.l_pid = getpid();
+    //阻塞式的加锁
+    if (fcntl (lockfile, F_SETLKW, &fl) < 0){
+        perror ("fcntl_reg");
+        exit(1);
+    }
+    //把pid写入锁文件
+    ftruncate (lockfile, 0);    
+    sprintf (buf, "%ld", (long)getpid());
+    write (lockfile, buf, strlen(buf) + 1);
+}
+int program_running_check()
+{
+    struct flock fl;
+    fl.l_start = 0;
+    fl.l_whence = SEEK_SET;
+    fl.l_len = 0;
+    fl.l_type = F_WRLCK;
+ 
+    //尝试获得文件锁
+    if (fcntl (lockfile, F_GETLK, &fl) < 0){
+        perror ("fcntl_get");
+        exit(1);
+    }
+ 
+    //没有锁，则给文件加锁，否则返回锁着文件的进程pid
+    if (fl.l_type == F_UNLCK) {
+        flock_reg ();
+        return 0;
+    }
+    return fl.l_pid;
+}
+int daemon_init(void) 
+{ 
+	pid_t pid; 
+	if((pid = fork()) < 0) 
+		return(-1); 
+	else if(pid != 0) 
+  	{
+		fprintf(stdout, "&&Info: Forked background with PID: [%d]\n", pid);
+		exit(0); /* parent exit */ 
+	}
+	/* child continues */ 
+	setsid(); 
+	chdir("/opt/"); 
+	umask(0); 
+	//子进程重新加锁
+	flock_reg ();
+	close(0); /* close stdin */ 
+	close(1); /* close stdout */ 
+	close(2); /* close stderr */ 
 	return(0); 
 }
