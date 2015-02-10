@@ -9,9 +9,44 @@
 #include <string.h>
 #define PCRE_STATIC // 静态库编译选项 
 #include "pcre.h"
-#define DEBUG_OPEN 0
 
-int trim(char *buf, int start, int end);
+#define DEBUG_OPEN 0
+#define DEBUG_MEMCHK 0
+struct lstring
+{
+	char *line;
+	unsigned int length;
+};
+
+int trim(char *buf, long int *start, long int *end);
+
+int daemon_init(void) 
+{ 
+	pid_t pid; 
+  if((pid = fork()) < 0) 
+  	return(-1); 
+  else if(pid != 0) 
+  	exit(0); /* parent exit */ 
+/* child continues */ 
+  setsid(); 
+  chdir("/opt/"); 
+  umask(0); 
+  close(0); /* close stdin */ 
+  close(1); /* close stdout */ 
+  close(2); /* close stderr */ 
+  return(0); 
+}
+
+void sig_term(int signo) 
+{ 
+	if(signo == SIGTERM) 
+	/* catched signal sent by kill(1) command */ 
+	{ 
+		syslog(LOG_INFO, "program terminated."); 
+		closelog(); 
+		exit(0); 
+	} 
+}
 
 void skip_space(char *htm, int *index)
 {
@@ -21,8 +56,6 @@ void skip_space(char *htm, int *index)
 size_t getLine(char *buf, long int *start, long int *end)
 {
 	int i = *end + 1;
-	//getLine:23: 612 588 
-	//getLine:30: 612 612 612
 #if DEBUG_OPEN		
 	fprintf(stderr, "%s:%d: %d %d \n", __FUNCTION__, __LINE__, i, *start);
 #endif	
@@ -46,70 +79,96 @@ size_t getLine(char *buf, long int *start, long int *end)
 // 2M 
 #define MAX_FILE_SIZE 0x200000 
 #define DEFAULT_POINTER_SIZE 1024
-char** readingFile(char *filePath, int flags)
+struct lstring* readingFile(char *filePath, int flags)
 {
-	char **bbf = (char **)malloc(1024*sizeof(char *));
-	memset(bbf, 0, 1024);
-	int phonebookFD = open(filePath, flags, S_IREAD);
-	if(phonebookFD < 0)
+	struct lstring *bbf = (struct lstring*)malloc(1024*sizeof(struct lstring));
+	memset(bbf, 0, 1024*sizeof(struct lstring));
+#if DEBUG_MEMCHK
+	fprintf(stderr, "+%s:%d  %p \n", __FUNCTION__, __LINE__, bbf);
+#endif		
+	int FD = open(filePath, flags, S_IREAD);
+	if(FD < 0)
 	{
 		syslog(LOG_INFO, "Err: file %s open!\n", filePath);
 		goto ERROR;
 	}
-	off_t fileSize = lseek(phonebookFD, 0L, SEEK_END);
-	lseek(phonebookFD, 0L, SEEK_SET);
+	off_t fileSize = lseek(FD, 0L, SEEK_END);
+	lseek(FD, 0L, SEEK_SET);
 	if(fileSize > MAX_FILE_SIZE)
 	{
 		syslog(LOG_INFO, "Err: file %s too larger!\n", filePath);
 		goto ERROR;
 	}
-	char *buf = (char *)malloc(fileSize+1);
+	char *buf = (char *)malloc(fileSize+1);// left \0 in the bottom of buffer
 	memset(buf, 0, fileSize+1);
+#if DEBUG_MEMCHK
+	fprintf(stderr, "+%s:%d  %p \n", __FUNCTION__, __LINE__, buf);
+#endif	
 	if(!buf)
 	{
 		syslog(LOG_INFO, "Err: Can NOT get more memory!\n");
 		goto ERROR;
 	}
-	int stat = read(phonebookFD, buf, fileSize);
+	int stat = read(FD, buf, fileSize);
 	if(stat <= 0)
 	{
 		syslog(LOG_INFO, "Err: file %s can NOT read!\n", filePath);
 		goto ERROR;
 	}
+#if DEBUG_OPEN
 	fprintf(stderr, "%s: %d %d\n", filePath, fileSize, stat);
-	long int s = 0, e = -1;
+#endif	
+	long int s = 0, e = -1, s0 = 0, e0 = 0;
 	long int ix = 0;
 	int tmp = 0, status = 0;
 	while(tmp = getLine(buf, &s, &e))
 	{
-		status = trim(buf, s, e);
+		s0 = s;
+		e0 = e;
+#if DEBUG_OPEN		
+		fprintf(stderr, "%d: %d + %d %d + %d %d\n", s, e,buf[s], buf[s+1], buf[e-1], buf[e]);
+#endif		
+		status = trim(buf, &s0, &e0);
 #if DEBUG_OPEN		
 		fprintf(stderr, "=====%d: %d======\n", tmp, status);
 #endif		
-		if( status == -2)
+		if( status < 0)
 		{
 			fprintf(stderr, "Err: reading error! start more than end\n");
 			return NULL;
 		}
-		else if( status == -1) continue;
+		else if( status == 0) continue;
 		else 
-			bbf[ix] = buf + status;
+		{
+			bbf[ix].line = buf + s0;
+			bbf[ix].length = e0 - s0 + 1;
 #if DEBUG_OPEN			
-		fprintf(stderr, "%d=> %s [%d:%d]\n", __LINE__, bbf[ix], s, e);
+			fprintf(stderr, "=> %d %d %d: %d: %d %d %d\n", \
+				bbf[ix].line[bbf[ix].length-2], bbf[ix].line[bbf[ix].length-1], bbf[ix].line[bbf[ix].length], \
+				s0, e0, bbf[ix].length, strlen(bbf[ix].line));
+#endif				
+		}
+#if DEBUG_OPEN
+		fprintf(stderr, "%d=> %s [%d:%d]\n", __LINE__, bbf[ix].line, s, e);
 		fprintf(stderr, "===========\n");
 #endif		
 		ix++;
 	}
+	close(FD);
 	return bbf;
 ERROR:
+#if DEBUG_MEMCHK
+	fprintf(stderr, "-%s:%d  %p %p\n", __FUNCTION__, __LINE__, buf, bbf);
+#endif
 	if(buf) free(buf);
 	if(bbf) free(bbf);
-	if(phonebookFD > 0) close(phonebookFD);
+	if(FD > 0) close(FD);
 	return NULL;
 } 
 
-int trim(char *buf, int start, int end)
+int trim(char *buf, long int *s, long int *e)
 {
+	long int start = *s, end = *e;
 	if(start > end) return -1;
 	for(; start < end; start++)
 	{
@@ -118,20 +177,23 @@ int trim(char *buf, int start, int end)
 	}
 	for(; end > start; end--)
 	{
-		if(isspace(buf[end])) continue;
+		if(buf[end] == '\0' || isspace(buf[end])) 
+			continue;
 		break;
 	}
 #if DEBUG_OPEN	
-	fprintf(stderr, "++++++ %d: %d======\n", start, end);
+	fprintf(stderr, "++++++ %d: %d= %x %x=====\n", start, end, buf[end], buf[end+1]);
 #endif	
 	if(start == end && isspace(buf[start]))
-		return -1;
+		return 0;
 	buf[end+1] = '\0';
-	return start;
+	*s = start;
+	*e = end;
+	return 1;
 }
 
 #define OVECCOUNT 6
-char* check_ext_rdnis(char *line, char *repStr)
+char* check_ext_rdnis(struct lstring line, char *repStr)
 {
 	int i = 0, rc;
 	static char xString[4096] = {0};
@@ -140,14 +202,14 @@ char* check_ext_rdnis(char *line, char *repStr)
     int  erroffset; 
     int  ovector[OVECCOUNT]; 
 	pcre  *re; 
-	char  pattern [] = "[[:space:]]*exten[[:space:]]+=>[[:space:]]+.+CALLERID\\(rdnis\\)=([^\\)]+)";
+	char  pattern [] = "^[[:space:]]*exten[[:space:]]+=>[[:space:]]+.+CALLERID\\(rdnis\\)=([^\\)]+)";
 	re = pcre_compile(pattern, 0, &error, &erroffset, NULL);
 	if (re == NULL)
     {
         printf("PCRE compilation failed at offset %d: %s\n", erroffset, error); 
         return 0; 
     } 
-	rc = pcre_exec(re, NULL, line, strlen(line), 0, 0, ovector, OVECCOUNT);
+	rc = pcre_exec(re, NULL, line.line, line.length, 0, 0, ovector, OVECCOUNT);
 	
     if (rc < 0)
     {//如果没有匹配，返回错误信息 
@@ -159,9 +221,9 @@ char* check_ext_rdnis(char *line, char *repStr)
             return NULL; 
     } 
 #if DEBUG_OPEN		
-	fprintf(stderr, "$%2d: %.*s\n", 10, ovector[1], line);
-	fprintf(stderr, "$%2d: %.*s\n", 11, ovector[2], line);
-	fprintf(stderr, "$%2d: %.*s\n", 12, ovector[1], line + ovector[1]);
+	fprintf(stderr, "$%2d: %.*s\n", 10, ovector[1], line.line);
+	fprintf(stderr, "$%2d: %.*s\n", 11, ovector[2], line.line);
+	fprintf(stderr, "$%2d: %.*s\n", 12, ovector[1], line.line + ovector[1]);
 	for (i = 0; i < rc; i++)
     {//分别取出捕获分组 $0整个正则公式 $1第一个() 
         char *substring_start = line + ovector[2*i]; 
@@ -169,50 +231,100 @@ char* check_ext_rdnis(char *line, char *repStr)
         fprintf(stderr, "$%2d: %.*s\n", i, substring_length, substring_start);
     } 
 #endif	
-	int repStr_size = strlen(repStr), line_size = strlen(line);
+	int repStr_size = strlen(repStr);
 	if(repStr_size > 512) repStr_size = 512;
-	if(line_size > 1024) line_size = 1024;
-	memcpy(xString, line, ovector[2]);
+	memcpy(xString, line.line, ovector[2]);
 	memcpy(xString+ovector[2], repStr, repStr_size);
-	memcpy(xString+ovector[2]+repStr_size, line + ovector[1], line_size - ovector[1]);
-	memcpy(xString+ovector[2]+repStr_size + line_size - ovector[1], "\n", 1);
+	memcpy(xString+ovector[2]+repStr_size, line.line + ovector[1], line.length - ovector[1]);
+	memcpy(xString+ovector[2]+repStr_size + line.length - ovector[1], "\n", 1);
+	pcre_free(re);
 	return xString;
 }
-void do_edit_extensions(char *extPath, char **buff)
+void do_edit_extensions(char *extPath, struct lstring *buff)
 {
 	static unsigned int count = 0;
-	// loading extension.conf
-	int ext_size = 0;
-	char **extFileBuf = readingFile(extPath, O_RDWR);
+	unsigned int buff_size = 0;
 	int i;
-	fprintf(stderr, "%d => %s %s\n", __LINE__, extFileBuf[0], extFileBuf[1]);
+	for(i = 0; buff[i].line; i++)
+		buff_size++;
+#if DEBUG_OPEN
+		fprintf(stderr, "buff size :%d\n", buff_size);
+#endif		
+	// loading extension.conf
+	struct lstring *extFileBuf = readingFile(extPath, O_RDWR);
+#if DEBUG_OPEN	
+	fprintf(stderr, "%d => %s %s\n", __LINE__, extFileBuf[0].line, extFileBuf[1].line);
 	fprintf(stderr, "\n--------------------------------------\n");
-	int wfd = open("result.conf", O_TRUNC|O_WRONLY|O_CREAT);
-	for(i = 0; extFileBuf[i]; i++)
+#endif	
+	int wfd = open(extPath, O_TRUNC|O_WRONLY|O_CREAT);
+	for(i = 0; extFileBuf[i].line; i++)
 	{
 		char *stat = NULL;
-		fprintf(stderr, "%d => %s\n", __LINE__, extFileBuf[i]);
-		stat = check_ext_rdnis(extFileBuf[i], buff[count]);
+#if DEBUG_OPEN		
+		fprintf(stderr, "%d => %s\n", __LINE__, extFileBuf[i].line);
+#endif		
+		stat = check_ext_rdnis(extFileBuf[i], buff[count].line);
 		if(stat)
 		{	// replace call id
+#if DEBUG_OPEN			
 			fprintf(stderr, "ready to replace!\n");
+#endif			
 			write(wfd, stat, strlen(stat));
-			count++;
+			count = (count + 1) % buff_size;// line number
 		}
 		else
 		{
-			fprintf(stderr, "+%s\n", extFileBuf[i]);
-			//fprintf(wfd, "%s\n", extFileBuf[i]);
-			write(wfd, extFileBuf[i], strlen(extFileBuf[i]));
+#if DEBUG_OPEN			
+			fprintf(stderr, "+%s  [%d:%d] %d %d\n", \
+				extFileBuf[i].line, strlen(extFileBuf[i].line), extFileBuf[i].length, \
+				extFileBuf[i].line[strlen(extFileBuf[i].line)], extFileBuf[i].line[extFileBuf[i].length]);
+#endif				
+			write(wfd, extFileBuf[i].line, strlen(extFileBuf[i].line));
 			write(wfd, "\n", 1);
 		}
 	}
+	// clean all buffer
+#if DEBUG_MEMCHK
+	fprintf(stderr, "-%s:%d  %p %p %p\n", __FUNCTION__, __LINE__, &(buff->line[0]), &(extFileBuf->line[0]), extFileBuf);
+#endif
+	free(&(buff->line[0]));
+	free(&(extFileBuf->line[0]));
+	free(extFileBuf);
+//	free(buff);
+	close(wfd);
 }
+
 int main(int argc, char *argv[]) 
-{ 
-  char **phoneBook = NULL;
-	phoneBook = readingFile(argv[1], O_RDONLY);
-	if(phoneBook)
-		do_edit_extensions(argv[2], phoneBook);
-  return(0); 
+{
+#if 1
+	if(daemon_init() == -1) 
+	{ 
+		fprintf(stderr, "can't fork self/n"); 
+		exit(0); 
+	} 
+#endif	
+  //  grep daemontest /var/log/messages
+	openlog("daemontest", LOG_PID, LOG_USER); 
+	syslog(LOG_INFO, "program started."); 
+	signal(SIGTERM, sig_term); /* arrange to catch the signal */
+	struct lstring *phoneBook = NULL;
+	if(argc != 3) 
+	{
+		syslog(LOG_INFO, "Argument %d.\n", argc);
+		exit(0);
+	}
+	while(1) 
+	{ 
+		phoneBook = readingFile(argv[1], O_RDONLY);
+		if(phoneBook)
+			do_edit_extensions(argv[2], phoneBook);
+		else return 0;
+		// clean malloc-buffer
+#if DEBUG_MEMCHK
+		fprintf(stderr, "-%s:%d  %p \n", __FUNCTION__, __LINE__, phoneBook);
+#endif			
+		free(phoneBook);
+		sleep(300); /* put your main program here */ 
+	} 
+	return(0); 
 }
