@@ -1,0 +1,73 @@
+#!/bin/sh
+#
+# chkconfig: - 91 35
+# description: Starts and stops the daemontest daemon \
+#        
+# 将daemontest 拷贝到/etc/init.d/目录下面， 将daemontestd拷贝到/usr/sbin/目录下面 然后就可以通过service daemontestd start开启动
+
+# Source function library.
+if [ -f /etc/init.d/functions ] ; then
+  . /etc/init.d/functions
+elif [ -f /etc/rc.d/init.d/functions ] ; then
+  . /etc/rc.d/init.d/functions
+else
+  exit 1
+fi
+# Avoid using root's TMPDIR
+unset TMPDIR
+# Source networking configuration.
+. /etc/sysconfig/network
+# Check that networking is up.
+[ ${NETWORKING} = "no" ] && exit 1
+RETVAL=0
+
+start() {
+        KIND="daemontest"
+ echo -n $"Starting $KIND services: "
+ daemon daemonestd -D
+ RETVAL=$?
+ echo
+ [ $RETVAL -eq 0 ] && touch /var/lock/subsys/sipserver || \
+    RETVAL=1
+ return $RETVAL
+} 
+stop() {
+        KIND="daemontest
+ echo -n $"Shutting down $KIND services: "
+ killproc daemonestd
+ RETVAL=$?
+ echo
+ [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/sipserver
+ return $RETVAL
+} 
+restart() {
+ stop
+ start
+} 
+case "$1" in
+  start)
+   start
+ ;;
+  stop)
+   stop
+ ;;
+  restart)
+   restart
+ ;;
+  reload)
+   reload
+ ;;
+  status)
+   rhstatus
+ ;;
+  configtest)
+   configtest
+ ;;
+  condrestart)
+   [ -f /var/lock/subsys/smb ] && restart || :
+ ;;
+  *)
+ echo $"Usage: $0 {start|stop|restart}"
+ exit 2
+esac
+exit $?
