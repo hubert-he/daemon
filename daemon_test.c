@@ -7,6 +7,8 @@
 #include <syslog.h>
 #include <signal.h>
 #include <string.h>
+#include <signal.h>
+#include<sys/wait.h>
 #define PCRE_STATIC // 静态库编译选项 
 #include "pcre.h"
 
@@ -26,6 +28,7 @@ void    flock_reg ();              /* 注册文件锁 */
 int     program_running_check();   /* 锁控制函数 */
 int daemon_init(void);
 int trim(char *buf, long int *start, long int *end);
+static void sig_child(int signo);
 
 void sig_term(int signo) 
 { 
@@ -305,6 +308,7 @@ int main(int argc, char *argv[])
 		exit(0); 
 	} 
 #endif	
+	signal(SIGCHLD,sig_child);
   //  grep daemontest /var/log/messages
 	openlog("daemontest", LOG_PID, LOG_USER); 
 	syslog(LOG_INFO, "program started."); 
@@ -315,8 +319,11 @@ int main(int argc, char *argv[])
 		syslog(LOG_INFO, "Argument %d.\n", argc);
 		exit(0);
 	}
+	int left;
+	pid_t pid; 
 	while(1) 
 	{ 
+		left = 300;
 		phoneBook = readingFile(argv[1], O_RDONLY);
 		if(phoneBook)
 			do_edit_extensions(argv[2], phoneBook);
@@ -326,7 +333,19 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "-%s:%d  %p \n", __FUNCTION__, __LINE__, phoneBook);
 #endif			
 		free(phoneBook);
-		sleep(300); /* put your main program here */ 
+		if((pid = fork()) < 0) 
+			return(-1); 
+		else if(pid == 0) 
+		{// asterisk -rx "dialplan reload"
+			char * argv[ ] ={"asterisk", "-rx", "\"dialplan reload\"",0};
+			execvp("asterisk",argv);
+			syslog(LOG_INFO, "asterisk exec Failed.\n"); 
+		}
+		while(left > 0)
+		{
+			left = sleep(left);
+			fprintf(stderr, "left = %d\n", left);
+		}
 	} 
 	return(0); 
 }
@@ -391,4 +410,12 @@ int daemon_init(void)
 	close(1); /* close stdout */ 
 	close(2); /* close stderr */ 
 	return(0); 
+}
+static void sig_child(int signo)
+{
+     pid_t        pid;
+     int        stat;
+     //处理僵尸进程
+     while ((pid = waitpid(-1, &stat, WNOHANG)) >0)
+		fprintf(stderr, "child %d terminated.\n", pid);
 }
