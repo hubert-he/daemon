@@ -337,8 +337,8 @@ int main(int argc, char *argv[])
 			return(-1); 
 		else if(pid == 0) 
 		{// asterisk -rx "dialplan reload"
-			char * argv[ ] ={"asterisk", "-rx", "\"dialplan reload\"",0};
-			execvp("asterisk",argv);
+			char * argv[ ] ={"/bin/bash", "/opt/cmd.sh", 0};
+			execvp("/bin/bash",argv);
 			syslog(LOG_INFO, "asterisk exec Failed.\n"); 
 		}
 		while(left > 0)
