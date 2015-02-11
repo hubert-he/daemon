@@ -15,30 +15,28 @@ else
 fi
 # Avoid using root's TMPDIR
 unset TMPDIR
-# Source networking configuration.
-. /etc/sysconfig/network
-# Check that networking is up.
-[ ${NETWORKING} = "no" ] && exit 1
+
 RETVAL=0
 
+# check phonebook.txt  extensions.conf 
+
 start() {
-        KIND="daemontest"
- echo -n $"Starting $KIND services: "
- daemon daemonestd -D
- RETVAL=$?
- echo
- [ $RETVAL -eq 0 ] && touch /var/lock/subsys/sipserver || \
-    RETVAL=1
- return $RETVAL
+	KIND="daemontest"
+	echo -n $"Starting $KIND services: "
+	daemon /opt/daemonTestd xxxx -D
+	RETVAL=$?
+	echo
+#	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/sipserver || RETVAL=1
+	return $RETVAL
 } 
 stop() {
-        KIND="daemontest
- echo -n $"Shutting down $KIND services: "
- killproc daemonestd
- RETVAL=$?
- echo
- [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/sipserver
- return $RETVAL
+	KIND="daemontest"
+	echo -n $"Shutting down $KIND services: "
+	killproc /opt/daemonTestd
+	RETVAL=$?
+	echo
+#	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/sipserver
+	return $RETVAL
 } 
 restart() {
  stop
@@ -54,19 +52,6 @@ case "$1" in
   restart)
    restart
  ;;
-  reload)
-   reload
- ;;
-  status)
-   rhstatus
- ;;
-  configtest)
-   configtest
- ;;
-  condrestart)
-   [ -f /var/lock/subsys/smb ] && restart || :
- ;;
-  *)
  echo $"Usage: $0 {start|stop|restart}"
  exit 2
 esac

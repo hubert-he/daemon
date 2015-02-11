@@ -36,7 +36,7 @@ void sig_term(int signo)
   }  
 } 
   
-int main(void)  
+int main(int argc, char **argv)  
 {  
     if(daemon_init() == -1)  
   {  
@@ -48,7 +48,7 @@ int main(void)
   signal(SIGTERM, sig_term); /* arrange to catch the signal */  
   while(1)  
   {  
-	fprintf(stderr, "rounding\n");
+	fprintf(stderr, "rounding: %s\n", argv[1]);
     sleep(10); /* put your main program here */  
   }  
   return(0);  
