@@ -43,8 +43,9 @@ restart() {
  stop
  start
 }
+
 rhstatus(){
-	status -l rotate rotated
+	status /opt/rotated
 	return $?
 }
 case "$1" in
