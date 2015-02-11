@@ -1,0 +1,67 @@
+#!/bin/sh
+#
+# chkconfig: - 91 35
+# description: Starts and stops the daemontest daemon \
+#        
+
+# Source function library.
+if [ -f /etc/init.d/functions ] ; then
+  . /etc/init.d/functions
+elif [ -f /etc/rc.d/init.d/functions ] ; then
+  . /etc/rc.d/init.d/functions
+else
+  exit 1
+fi
+# Avoid using root's TMPDIR
+unset TMPDIR
+
+# check phonebook.txt  extensions.conf 
+[ -f /etc/asterisk/extensions.conf ] || exit 6
+[ -f /opt/phonebook.txt ] || exit 6
+RETVAL=0
+
+start() {
+	KIND="daemontest"
+	echo -n $"Starting $KIND services: "
+	daemon /opt/rotated /opt/phonebook.txt /etc/asterisk/extensions.conf
+	RETVAL=$?
+	echo
+	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/rotate || \
+		RETVAL=1
+	return $RETVAL
+} 
+stop() {
+	KIND="daemontest"
+	echo -n $"Shutting down $KIND services: "
+	killproc /opt/rotated
+	RETVAL=$?
+	echo
+	[ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/rotate
+	return $RETVAL
+} 
+restart() {
+ stop
+ start
+}
+rhstatus(){
+	status -l rotate rotated
+	return $?
+}
+case "$1" in
+  start)
+   start
+ ;;
+  stop)
+   stop
+ ;;
+  restart)
+   restart
+ ;;
+  status)
+  rhstatus
+  ;;
+  *)
+ echo $"Usage: $0 {start|stop|restart}"
+ exit 2
+esac
+exit $?

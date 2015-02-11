@@ -322,7 +322,7 @@ int main(int argc, char *argv[])
 	int left;
 	pid_t pid; 
 	while(1) 
-	{ 
+	{
 		left = 300;
 		phoneBook = readingFile(argv[1], O_RDONLY);
 		if(phoneBook)
